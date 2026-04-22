@@ -1,0 +1,756 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { useParams, useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
+import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useAuth } from "@/contexts/AuthContext"
+import ThemeToggle from "@/components/ui/ThemeToggle"
+import UserProfile from "@/components/ui/UserProfile"
+import { doc, getDoc, updateDoc } from "firebase/firestore"
+import { db } from "@/lib/firebase/config"
+import type { Game, Question } from "@/types/game"
+import {
+  ArrowLeft,
+  Save,
+  Plus,
+  X,
+  Tag,
+  Loader2,
+  User,
+  Edit,
+  Trash2,
+  Clock,
+  CheckCircle,
+  GripVertical,
+  ImageIcon,
+  Eye,
+  EyeOff,
+} from "lucide-react"
+import { toast } from "@/hooks/use-toast"
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd"
+import Image from "next/image"
+
+export default function EditGamePage() {
+  const { id } = useParams()
+  const router = useRouter()
+  const { user, isAdmin, loading: authLoading } = useAuth()
+
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const [game, setGame] = useState<Game | null>(null)
+  const [showProfile, setShowProfile] = useState(false)
+
+  // Форма данных
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const [enableChat, setEnableChat] = useState(true)
+  const [categories, setCategories] = useState<string[]>([])
+  const [newCategory, setNewCategory] = useState("")
+  const [questions, setQuestions] = useState<Question[]>([])
+
+  // Редактирование вопроса
+  const [editingQuestion, setEditingQuestion] = useState<number | null>(null)
+  const [questionForm, setQuestionForm] = useState<Partial<Question>>({})
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [correctAnswersText, setCorrectAnswersText] = useState("")
+
+  // Проверка доступа
+  useEffect(() => {
+    if (!authLoading && !isAdmin) {
+      router.push("/")
+    }
+  }, [authLoading, isAdmin, router])
+
+  // Загрузка игры
+  useEffect(() => {
+    if (!id || !user || !isAdmin || authLoading) return
+
+    const loadGame = async () => {
+      try {
+        setLoading(true)
+        setError("")
+
+        const gameDoc = await getDoc(doc(db, "games", id as string))
+
+        if (!gameDoc.exists()) {
+          setError("Игра не найдена")
+          return
+        }
+
+        const gameData = { id: gameDoc.id, ...gameDoc.data() } as Game
+
+        // Проверяем права доступа
+        if (gameData.createdBy !== user.uid) {
+          setError("У вас нет прав для редактирования этой игры")
+          return
+        }
+
+        setGame(gameData)
+        setTitle(gameData.title)
+        setDescription(gameData.description || "")
+        setEnableChat(gameData.settings?.enableChat ?? true)
+        setCategories(gameData.categories || [])
+        setQuestions(gameData.questions || [])
+      } catch (error) {
+        console.error("Ошибка загрузки игры:", error)
+        setError("Ошибка при загрузке игры")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadGame()
+  }, [id, user, isAdmin, authLoading])
+
+  const handleSaveGame = async () => {
+    if (!title.trim() || !game) {
+      setError("Название игры обязательно")
+      return
+    }
+
+    try {
+      setSaving(true)
+      setError("")
+
+      // ИСПРАВЛЕНО: Очищаем данные от undefined значений
+      const gameData = {
+        title: title.trim(),
+        description: description.trim() || "",
+        settings: {
+          enableChat,
+        },
+        categories: categories.length > 0 ? categories : [],
+        questions: questions.map((q) => ({
+          ...q,
+          // Убираем undefined поля
+          image: q.image || null,
+          options: q.options || [],
+          correctAnswers: q.correctAnswers || [],
+        })),
+        updatedAt: Date.now(),
+      }
+
+      await updateDoc(doc(db, "games", game.id), gameData)
+
+      toast({
+        title: "Игра сохранена",
+        description: "Изменения успешно сохранены",
+      })
+
+      router.push("/admin")
+    } catch (error) {
+      console.error("Ошибка сохранения игры:", error)
+      setError("Ошибка при сохранении игры")
+      setSaving(false)
+    }
+  }
+
+  const handleAddCategory = () => {
+    if (!newCategory.trim() || categories.includes(newCategory.trim())) {
+      return
+    }
+    setCategories([...categories, newCategory.trim()])
+    setNewCategory("")
+  }
+
+  const handleRemoveCategory = (category: string) => {
+    setCategories(categories.filter((c) => c !== category))
+  }
+
+  const handleAddQuestion = () => {
+    const newQuestion: Question = {
+      id: `q_${Date.now()}`,
+      question: "",
+      type: "MULTIPLE_CHOICE",
+      options: ["", "", "", ""],
+      correctAnswers: [0],
+      timeLimit: 30,
+      points: 100,
+    }
+    setQuestions([...questions, newQuestion])
+    setEditingQuestion(questions.length)
+    setQuestionForm(newQuestion)
+    setCorrectAnswersText("")
+  }
+
+  const handleEditQuestion = (index: number) => {
+    setEditingQuestion(index)
+    const question = questions[index]
+    setQuestionForm({ ...question })
+    setPreviewImage(question.image || null)
+
+    // ИСПРАВЛЕНО: Правильная обработка текстовых ответов
+    if (question.type === "TEXT" && question.correctAnswers) {
+      setCorrectAnswersText(
+        Array.isArray(question.correctAnswers) ? question.correctAnswers.join(", ") : String(question.correctAnswers),
+      )
+    } else {
+      setCorrectAnswersText("")
+    }
+  }
+
+  const handleSaveQuestion = () => {
+    if (!questionForm.question?.trim()) {
+      toast({
+        title: "Ошибка",
+        description: "Текст вопроса обязателен",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Проверка правильных ответов для текстовых вопросов
+    if (questionForm.type === "TEXT" && !correctAnswersText.trim()) {
+      toast({
+        title: "Ошибка",
+        description: "Укажите правильный ответ для текстового вопроса",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (editingQuestion !== null) {
+      const updatedQuestion = { ...questionForm } as Question
+
+      // ИСПРАВЛЕНО: Обработка текстовых ответов с запятыми
+      if (questionForm.type === "TEXT") {
+        updatedQuestion.correctAnswers = correctAnswersText
+          .split(",")
+          .map((answer) => answer.trim())
+          .filter((answer) => answer.length > 0)
+      }
+
+      const updatedQuestions = [...questions]
+      updatedQuestions[editingQuestion] = updatedQuestion
+      setQuestions(updatedQuestions)
+      setEditingQuestion(null)
+      setQuestionForm({})
+      setPreviewImage(null)
+      setCorrectAnswersText("")
+    }
+  }
+
+  const handleDeleteQuestion = (index: number) => {
+    setQuestions(questions.filter((_, i) => i !== index))
+    if (editingQuestion === index) {
+      setEditingQuestion(null)
+      setQuestionForm({})
+      setPreviewImage(null)
+      setCorrectAnswersText("")
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setEditingQuestion(null)
+    setQuestionForm({})
+    setPreviewImage(null)
+    setCorrectAnswersText("")
+  }
+
+  // Обработка перетаскивания вопросов
+  const handleDragEnd = (result: any) => {
+    if (!result.destination) return
+
+    const items = Array.from(questions)
+    const [reorderedItem] = items.splice(result.source.index, 1)
+    items.splice(result.destination.index, 0, reorderedItem)
+
+    setQuestions(items)
+  }
+
+  // Проверка URL изображения
+  const handleImageUrlChange = (url: string) => {
+    setQuestionForm({ ...questionForm, image: url || null })
+
+    if (url.trim()) {
+      // Простая проверка URL
+      try {
+        new URL(url)
+        setPreviewImage(url)
+      } catch {
+        setPreviewImage(null)
+      }
+    } else {
+      setPreviewImage(null)
+    }
+  }
+
+  if (authLoading || loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <p className="text-muted-foreground">Загрузка игры...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-6 text-center">
+            <h2 className="text-xl font-bold mb-2">Ошибка</h2>
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <Button onClick={() => router.push("/admin")} variant="outline">
+              Вернуться к списку игр
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!isAdmin || !game) {
+    return null
+  }
+
+  return (
+    <div className="container mx-auto p-4 space-y-6">
+      {/* Заголовок */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <Button variant="outline" onClick={() => router.push("/admin")}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Назад
+          </Button>
+          <div className="flex items-center gap-3">
+            <Image src="/main_logo.png" alt="MaksbukQuiz" width={32} height={32} className="rounded-lg" />
+            <h1 className="text-2xl font-bold">Редактирование игры</h1>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <ThemeToggle />
+          {/* ИСПРАВЛЕНО: Кнопка профиль с обводкой */}
+          <Button variant="outline" size="sm" onClick={() => setShowProfile(true)}>
+            <User className="w-4 h-4 mr-2" />
+            Профиль
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Основная информация */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Основная информация</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="title">Название игры *</Label>
+              <Input
+                id="title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Введите название игры"
+                maxLength={100}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="description">Описание</Label>
+              <Textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Введите описание игры (необязательно)"
+                maxLength={500}
+                rows={3}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="categories">Категории</Label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {categories.map((category) => (
+                  <Badge key={category} variant="secondary" className="flex items-center gap-1">
+                    {category}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-4 w-4 p-0 ml-1"
+                      onClick={() => handleRemoveCategory(category)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </Badge>
+                ))}
+                {categories.length === 0 && <span className="text-sm text-muted-foreground">Нет категорий</span>}
+              </div>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Tag className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                  <Input
+                    id="categories"
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    onKeyPress={(e) => e.key === "Enter" && handleAddCategory()}
+                    placeholder="Добавить категорию"
+                    className="pl-10"
+                    maxLength={30}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  onClick={handleAddCategory}
+                  disabled={!newCategory.trim() || categories.includes(newCategory.trim())}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Добавить
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="enableChat">Включить чат</Label>
+                <p className="text-sm text-muted-foreground">Позволяет игрокам общаться во время игры</p>
+              </div>
+              <Switch id="enableChat" checked={enableChat} onCheckedChange={setEnableChat} />
+            </div>
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
+
+            <div className="flex justify-end pt-4">
+              <Button onClick={handleSaveGame} disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Сохранение...
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Сохранить игру
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Вопросы */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span>Вопросы ({questions.length})</span>
+              <Button onClick={handleAddQuestion} size="sm">
+                <Plus className="w-4 h-4 mr-2" />
+                Добавить вопрос
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4 max-h-96 overflow-y-auto">
+              {questions.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>Пока нет вопросов</p>
+                  <p className="text-sm">Добавьте первый вопрос для игры</p>
+                </div>
+              ) : (
+                <DragDropContext onDragEnd={handleDragEnd}>
+                  <Droppable droppableId="questions">
+                    {(provided) => (
+                      <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-3">
+                        {questions.map((question, index) => (
+                          <Draggable key={question.id} draggableId={question.id} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                className={`border rounded-lg p-4 ${
+                                  snapshot.isDragging ? "shadow-lg bg-white dark:bg-gray-800" : ""
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <div {...provided.dragHandleProps} className="cursor-grab">
+                                      <GripVertical className="w-4 h-4 text-muted-foreground" />
+                                    </div>
+                                    <span className="font-medium">Вопрос {index + 1}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline">{question.type}</Badge>
+                                    <Button variant="ghost" size="sm" onClick={() => handleEditQuestion(index)}>
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteQuestion(index)}>
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                <p className="text-sm text-muted-foreground line-clamp-2">{question.question}</p>
+                                <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {question.timeLimit}с
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <CheckCircle className="w-3 h-3" />
+                                    {question.points} баллов
+                                  </span>
+                                  {question.image && (
+                                    <span className="flex items-center gap-1">
+                                      <ImageIcon className="w-3 h-3" />
+                                      Изображение
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
+                    )}
+                  </Droppable>
+                </DragDropContext>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Модальное окно редактирования вопроса */}
+      {editingQuestion !== null && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <CardHeader>
+              <CardTitle>
+                {editingQuestion === questions.length
+                  ? "Новый вопрос"
+                  : `Редактирование вопроса ${editingQuestion + 1}`}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Левая колонка */}
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Текст вопроса *</Label>
+                    <Textarea
+                      value={questionForm.question || ""}
+                      onChange={(e) => setQuestionForm({ ...questionForm, question: e.target.value })}
+                      placeholder="Введите текст вопроса"
+                      rows={3}
+                      className="resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Тип вопроса</Label>
+                      <Select
+                        value={questionForm.type}
+                        onValueChange={(value) => {
+                          const newForm = { ...questionForm, type: value as any }
+
+                          // Сброс данных при смене типа
+                          if (value === "TRUE_FALSE") {
+                            newForm.options = ["Да", "Нет"]
+                            newForm.correctAnswers = [0]
+                            setCorrectAnswersText("")
+                          } else if (value === "TEXT") {
+                            newForm.options = []
+                            newForm.correctAnswers = []
+                            setCorrectAnswersText("")
+                          } else if (value === "MULTIPLE_CHOICE" || value === "MULTIPLE_SELECT") {
+                            newForm.options = ["", "", "", ""]
+                            newForm.correctAnswers = [0]
+                            setCorrectAnswersText("")
+                          }
+
+                          setQuestionForm(newForm)
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="MULTIPLE_CHOICE">Один вариант</SelectItem>
+                          <SelectItem value="MULTIPLE_SELECT">Несколько вариантов</SelectItem>
+                          <SelectItem value="TRUE_FALSE">Правда/Ложь</SelectItem>
+                          <SelectItem value="TEXT">Текстовый ответ</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Время (секунды)</Label>
+                      <Input
+                        type="number"
+                        min="10"
+                        max="300"
+                        value={questionForm.timeLimit || 30}
+                        onChange={(e) =>
+                          setQuestionForm({ ...questionForm, timeLimit: Number.parseInt(e.target.value) })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Баллы за правильный ответ</Label>
+                    <Input
+                      type="number"
+                      min="10"
+                      max="1000"
+                      step="10"
+                      value={questionForm.points || 100}
+                      onChange={(e) => setQuestionForm({ ...questionForm, points: Number.parseInt(e.target.value) })}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Ссылка на изображение (необязательно)</Label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <ImageIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                        <Input
+                          value={questionForm.image || ""}
+                          onChange={(e) => handleImageUrlChange(e.target.value)}
+                          placeholder="https://example.com/image.jpg"
+                          className="pl-10"
+                        />
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPreviewImage(previewImage ? null : questionForm.image || null)}
+                      >
+                        {previewImage ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </Button>
+                    </div>
+                    {previewImage && (
+                      <div className="mt-2">
+                        <img
+                          src={previewImage || "/placeholder.svg"}
+                          alt="Предпросмотр"
+                          className="max-w-full h-32 object-cover rounded-lg border"
+                          onError={() => setPreviewImage(null)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Правая колонка */}
+                <div className="space-y-4">
+                  {/* Варианты ответов для множественного выбора */}
+                  {(questionForm.type === "MULTIPLE_CHOICE" ||
+                    questionForm.type === "MULTIPLE_SELECT" ||
+                    questionForm.type === "TRUE_FALSE") && (
+                    <div className="space-y-2">
+                      <Label>Варианты ответов</Label>
+                      <div className="space-y-3">
+                        {(questionForm.options || []).map((option, index) => (
+                          <div key={index} className="flex items-center gap-2">
+                            <Input
+                              value={option}
+                              onChange={(e) => {
+                                const newOptions = [...(questionForm.options || [])]
+                                newOptions[index] = e.target.value
+                                setQuestionForm({ ...questionForm, options: newOptions })
+                              }}
+                              placeholder={`Вариант ${index + 1}`}
+                              disabled={questionForm.type === "TRUE_FALSE"}
+                            />
+                            <Button
+                              variant={(questionForm.correctAnswers || []).includes(index) ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => {
+                                const correctAnswers = questionForm.correctAnswers || []
+                                if (questionForm.type === "MULTIPLE_CHOICE" || questionForm.type === "TRUE_FALSE") {
+                                  setQuestionForm({ ...questionForm, correctAnswers: [index] })
+                                } else {
+                                  const newCorrect = correctAnswers.includes(index)
+                                    ? correctAnswers.filter((i) => i !== index)
+                                    : [...correctAnswers, index]
+                                  setQuestionForm({ ...questionForm, correctAnswers: newCorrect })
+                                }
+                              }}
+                              className="min-w-[40px]"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {questionForm.type === "MULTIPLE_CHOICE" || questionForm.type === "TRUE_FALSE"
+                          ? "Выберите один правильный ответ"
+                          : "Выберите все правильные ответы"}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* ИСПРАВЛЕНО: Правильные ответы для текстовых вопросов */}
+                  {questionForm.type === "TEXT" && (
+                    <div className="space-y-2">
+                      <Label>Правильные ответы *</Label>
+                      <Textarea
+                        value={correctAnswersText}
+                        onChange={(e) => setCorrectAnswersText(e.target.value)}
+                        placeholder="Введите правильные ответы через запятую"
+                        rows={3}
+                        className="resize-none"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Введите все возможные правильные ответы через запятую. Например: "Москва, москва, МОСКВА"
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Предпросмотр вопроса */}
+                  <div className="space-y-2">
+                    <Label>Предпросмотр</Label>
+                    <div className="p-4 border rounded-lg bg-muted/50">
+                      <h4 className="font-medium mb-2">{questionForm.question || "Текст вопроса"}</h4>
+                      {questionForm.image && (
+                        <img
+                          src={questionForm.image || "/placeholder.svg"}
+                          alt="Изображение вопроса"
+                          className="max-w-full h-24 object-cover rounded mb-2"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none"
+                          }}
+                        />
+                      )}
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <span>⏱️ {questionForm.timeLimit || 30}с</span>
+                        <span>🏆 {questionForm.points || 100} баллов</span>
+                        <span>📝 {questionForm.type}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button variant="outline" onClick={handleCancelEdit}>
+                  Отмена
+                </Button>
+                <Button onClick={handleSaveQuestion}>
+                  <Save className="w-4 h-4 mr-2" />
+                  Сохранить вопрос
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Профиль пользователя */}
+      {showProfile && <UserProfile isOpen={showProfile} onClose={() => setShowProfile(false)} />}
+    </div>
+  )
+}

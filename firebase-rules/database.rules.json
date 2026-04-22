@@ -1,0 +1,24 @@
+{
+  "rules": {
+    "sessions": {
+      "$sessionId": {
+        ".read": true,
+        ".write": true,
+        "players": {
+          "$playerId": {
+            ".read": true,
+            ".write": true
+          }
+        },
+        "chatMessages": {
+          ".read": true,
+          ".write": true,
+          "$messageId": {
+            ".read": true,
+            ".write": true
+          }
+        }
+      }
+    }
+  }
+}
