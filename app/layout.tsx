@@ -10,7 +10,7 @@ import { Toaster } from "@/components/ui/toaster"
 const inter = Inter({ subsets: ["latin", "cyrillic"] })
 
 export const metadata: Metadata = {
-  title: "MaksBukQuiz - Интерактивные викторины",
+  title: "SkiniyaQuiz - Интерактивные викторины",
   description: "Создавайте и играйте в интерактивные викторины в реальном времени",
   manifest: "/manifest.json",
   themeColor: "#000000",
