@@ -108,7 +108,7 @@ export default function HomePage() {
             <div className="flex items-center justify-center gap-3 mb-6">
               <Crown className="w-12 h-12 text-yellow-500" />
               <h2 className="text-5xl md:text-7xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                MaksbukQuiz
+                SkiniyaQuiz
               </h2>
               <Sparkles className="w-12 h-12 text-purple-500" />
             </div>
@@ -163,7 +163,7 @@ export default function HomePage() {
           transition={{ duration: 0.6, delay: 0.4 }}
           className="mb-16"
         >
-          <h3 className="text-3xl font-bold text-center mb-12">Почему MaksbukQuiz?</h3>
+          <h3 className="text-3xl font-bold text-center mb-12">Почему SkiniyaQuiz?</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {features.map((feature, index) => (
               <motion.div
@@ -232,7 +232,7 @@ export default function HomePage() {
         >
           <Card className="bg-gradient-to-r from-purple-500 to-blue-500 text-white border-0">
             <CardContent className="p-8">
-              <h3 className="text-3xl font-bold mb-8">MaksbukQuiz в цифрах</h3>
+              <h3 className="text-3xl font-bold mb-8">SkiniyaQuiz в цифрах</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div>
                   <div className="text-4xl font-bold mb-2">∞</div>
